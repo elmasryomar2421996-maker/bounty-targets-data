@@ -1,38 +1,37 @@
 name: Bug Bounty Scope Monitor
 
 on:
-  push:
-    branches: [ main ]
   schedule:
-    - cron: '0 */6 * * *' # يتم فحص التغييرات تلقائياً كل 6 ساعات
-  workflow_dispatch:
+    - cron: '0 */6 * * *' # يفحص المستودع الأصلي تلقائياً كل 6 ساعات
+  workflow_dispatch: # يتيح لك تشغيله يدوياً في أي وقت
 
 jobs:
-  check-and-notify:
+  check-upstream:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-
-      - name: Check for changes
-        id: git-check
+      - name: Fetch latest commit from upstream repository
         run: |
-          if git log -1 --pretty=format:"%s" | grep -q "Auto-update"; then
-            echo "changes=true" >> $GITHUB_OUTPUT
-          else
-            echo "changes=true" >> $GITHUB_OUTPUT # لتجربة الإرسال، يمكنك جعلها true دائماً أو ربطها بالتغييرات الفعليّة
-          fi
-
-      - name: Send Telegram Notification
-        run: |
-          COMMIT_MSG=$(git log -1 --pretty=format:"%s")
-          COMMIT_URL="https://github.com/${{ github.repository }}/commit/${{ github.sha }}"
+          # جلب أحدث Commit من المستودع الأصلي مباشرة
+          LATEST_COMMIT=$(curl -s "https://api.github.com/repos/arkadiyt/bounty-targets-data/commits/main")
+          COMMIT_MSG=$(echo "$LATEST_COMMIT" | jq -r '.commit.message')
+          COMMIT_URL=$(echo "$LATEST_COMMIT" | jq -r '.html_url')
+          COMMIT_DATE=$(echo "$LATEST_COMMIT" | jq -r '.commit.committer.date')
           
-          MESSAGE="🚨 *تنبيه تحديث في الـ Scope!*\n\n📝 *العملية:* ${COMMIT_MSG}\n🔗 *التفاصيل:* [عرض التغييرات](${COMMIT_URL})"
+          # حساب الفرق الزمني بالثواني
+          COMMIT_TIMESTAMP=$(date -d "$COMMIT_DATE" +%s)
+          CURRENT_TIMESTAMP=$(date +%s)
+          DIFF=$((CURRENT_TIMESTAMP - COMMIT_TIMESTAMP))
 
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
-            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -d "text=${MESSAGE}" \
-            -d "parse_mode=Markdown"
+          # الإرسال فقط إذا كان التحديث في المستودع الأصلي حدث خلال آخر 6 ساعات (22500 ثانية)
+          if [ $DIFF -lt 22500 ] || [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            MESSAGE="🚨 تحديث جديد في الـ Scope على المستودع الأصلي!
+
+📝 العملية: ${COMMIT_MSG}
+🔗 التفاصيل: ${COMMIT_URL}"
+
+            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+              -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+              --data-urlencode "text=${MESSAGE}"
+          else
+            echo "لا يوجد تحديثات جديدة في المستودع الأصلي خلال الـ 6 ساعات الماضية."
+          fi
