@@ -11,18 +11,28 @@ jobs:
     steps:
       - name: Fetch and check upstream commit
         run: |
-          # جلب بيانات أحدث Commit والوقت الخاص به بالتوقيت الموحد Unix Timestamp
+          # جلب بيانات أحدث Commit من المستودع الأصلي
           COMMIT_DATA=$(curl -s "https://api.github.com/repos/arkadiyt/bounty-targets-data/commits/main")
+          
           COMMIT_MSG=$(echo "$COMMIT_DATA" | jq -r '.commit.message')
           COMMIT_URL=$(echo "$COMMIT_DATA" | jq -r '.html_url')
           COMMIT_DATE=$(echo "$COMMIT_DATA" | jq -r '.commit.committer.date')
-          
-          COMMIT_TIMESTAMP=$(date --date="$COMMIT_DATE" +%s)
-          CURRENT_TIMESTAMP=$(date +%s)
-          DIFF=$((CURRENT_TIMESTAMP - COMMIT_TIMESTAMP))
+
+          # حساب الفرق الزمني بالثواني باستخدام Python لتجنب أخطاء صيغة التاريخ
+          DIFF=$(python3 -c "
+from datetime import datetime, timezone
+import sys
+
+commit_time = datetime.fromisoformat('$COMMIT_DATE'.replace('Z', '+00:00'))
+now = datetime.now(timezone.utc)
+diff = int((now - commit_time).total_seconds())
+print(diff)
+")
+
+          echo "Time difference in seconds: $DIFF"
 
           # الإرسال إذا كان التحديث خلال آخر 6 ساعات (22500 ثانية) أو تشغيل يدوي
-          if [ $DIFF -lt 22500 ] || [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          if [ "$DIFF" -lt 22500 ] || [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             MESSAGE="🚨 تحديث جديد في الـ Scope على المستودع الأصلي!
 
 📝 العملية: ${COMMIT_MSG}
