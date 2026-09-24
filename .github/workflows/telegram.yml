@@ -2,27 +2,26 @@ name: Bug Bounty Scope Monitor
 
 on:
   schedule:
-    - cron: '0 */6 * * *' # يفحص المستودع الأصلي تلقائياً كل 6 ساعات
-  workflow_dispatch: # يتيح لك تشغيله يدوياً في أي وقت
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
 
 jobs:
   check-upstream:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch latest commit from upstream repository
+      - name: Fetch and check upstream commit
         run: |
-          # جلب أحدث Commit من المستودع الأصلي مباشرة
-          LATEST_COMMIT=$(curl -s "https://api.github.com/repos/arkadiyt/bounty-targets-data/commits/main")
-          COMMIT_MSG=$(echo "$LATEST_COMMIT" | jq -r '.commit.message')
-          COMMIT_URL=$(echo "$LATEST_COMMIT" | jq -r '.html_url')
-          COMMIT_DATE=$(echo "$LATEST_COMMIT" | jq -r '.commit.committer.date')
+          # جلب بيانات أحدث Commit والوقت الخاص به بالتوقيت الموحد Unix Timestamp
+          COMMIT_DATA=$(curl -s "https://api.github.com/repos/arkadiyt/bounty-targets-data/commits/main")
+          COMMIT_MSG=$(echo "$COMMIT_DATA" | jq -r '.commit.message')
+          COMMIT_URL=$(echo "$COMMIT_DATA" | jq -r '.html_url')
+          COMMIT_DATE=$(echo "$COMMIT_DATA" | jq -r '.commit.committer.date')
           
-          # حساب الفرق الزمني بالثواني
-          COMMIT_TIMESTAMP=$(date -d "$COMMIT_DATE" +%s)
+          COMMIT_TIMESTAMP=$(date --date="$COMMIT_DATE" +%s)
           CURRENT_TIMESTAMP=$(date +%s)
           DIFF=$((CURRENT_TIMESTAMP - COMMIT_TIMESTAMP))
 
-          # الإرسال فقط إذا كان التحديث في المستودع الأصلي حدث خلال آخر 6 ساعات (22500 ثانية)
+          # الإرسال إذا كان التحديث خلال آخر 6 ساعات (22500 ثانية) أو تشغيل يدوي
           if [ $DIFF -lt 22500 ] || [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             MESSAGE="🚨 تحديث جديد في الـ Scope على المستودع الأصلي!
 
@@ -33,5 +32,5 @@ jobs:
               -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
               --data-urlencode "text=${MESSAGE}"
           else
-            echo "لا يوجد تحديثات جديدة في المستودع الأصلي خلال الـ 6 ساعات الماضية."
+            echo "لا يوجد تحديثات جديدة خلال الـ 6 ساعات الماضية."
           fi
